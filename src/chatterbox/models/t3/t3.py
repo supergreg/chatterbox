@@ -63,9 +63,27 @@ class T3(nn.Module):
             self.cfg = LlamaConfig(**config_dict)
             self.tfmr = LlamaModel(self.cfg)
 
+            # === SDPA FIX für Issue #339 ===
+            try:
+                if hasattr(self.tfmr, "set_attn_implementation"):
+                    self.tfmr.set_attn_implementation("eager")
+                if hasattr(self.tfmr, "config"):
+                    self.tfmr.config.attn_implementation = "eager"
+                    self.tfmr.config.output_attentions = True
+                import torch as _torch
+                try:
+                    _torch.backends.cuda.enable_flash_sdp(False)
+                    _torch.backends.cuda.enable_mem_efficient_sdp(False)
+                    _torch.backends.cuda.enable_math_sdp(True)
+                except Exception:
+                    pass
+                print("Forced eager attention for T3 transformer (SDPA fix)")
+            except Exception as _e:
+                print(f"Could not force eager attention for T3 transformer: {_e}")
+            # === ENDE SDPA FIX ===
+
         self.dim = self.cfg.hidden_size
         self.deepspeed_patch_applied = False
-
         # conditioning / embedding
         self.cond_enc = T3CondEnc(hp)
         self.text_emb = nn.Embedding(hp.text_tokens_dict_size, self.dim)
